@@ -3,3 +3,5 @@ livekit-plugins-groq
 livekit-plugins-silero
 python-dotenv
 typing-extensions>=4.0.0
+duckduckgo-search
+lxml
