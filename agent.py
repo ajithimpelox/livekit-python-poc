@@ -1,7 +1,9 @@
 import asyncio
-from livekit.agents import Agent, AgentSession, JobContext, mcp, AutoSubscribe
+from livekit.agents import Agent, AgentSession, JobContext, AutoSubscribe
 from livekit import rtc
 from common import logger, send_text_message, search_web
+from mcp_client.agent_tools import MCPToolsIntegration
+from mcp_client.server import MCPServerSse
 
 class UnifiedAgent(Agent):
     def __init__(self, mode="voice"):
@@ -22,6 +24,22 @@ async def agent_entrypoint(ctx: JobContext, mode: str):
     logger.info(f"Connected to room for {mode} agent")
 
     agent = UnifiedAgent(mode=mode)
+    
+    # Setup MCP servers
+    mcp_servers = [
+        MCPServerSse(
+            params={
+                "url": 'https://mcp.composio.dev/composio/server/34157b53-db3d-4f6b-89d6-9f2f7762ee84?transport=sse&connected_account_id=dd1ca81c-a9f3-4240-a6a5-e115e0994424&user_id=gmail-1492',
+                "timeout": 10,
+                "sse_read_timeout": 300
+            },
+            name="composio_server"
+        )
+    ]
+
+    # Register MCP tools with the agent
+    await MCPToolsIntegration.register_with_agent(agent, mcp_servers)
+
     session = AgentSession(
         llm=ctx.llm,
         tts=ctx.tts,
@@ -29,13 +47,6 @@ async def agent_entrypoint(ctx: JobContext, mode: str):
         vad=ctx.proc.userdata.get("vad") if mode == "voice" else None,
         max_tool_steps=5,
         allow_interruptions=True if mode == "voice" else False,
-        mcp_servers=[
-            mcp.MCPServerHTTP(
-                url='https://mcp.composio.dev/composio/server/34157b53-db3d-4f6b-89d6-9f2f7762ee84?transport=sse&connected_account_id=dd1ca81c-a9f3-4240-a6a5-e115e0994424&user_id=gmail-1492',
-                timeout=10,
-                client_session_timeout_seconds=10,
-            ),
-        ],
     )
 
     if mode == "text":
