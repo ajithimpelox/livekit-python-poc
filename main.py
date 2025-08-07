@@ -10,8 +10,7 @@ logger = logging.getLogger(__name__)
 
 try:
     from common import prewarm, logger as common_logger
-    from text_agent import text_agent_entrypoint
-    from voice_agent import voice_agent_entrypoint
+    from agent import agent_entrypoint
     logger.info("All imports successful")
 except ImportError as e:
     logger.error(f"Import error: {e}")
@@ -27,7 +26,7 @@ async def entrypoint(ctx: JobContext):
         
         # Initialize plugins
         logger.info("Initializing plugins...")
-        ctx.llm = groq.LLM(model="llama3-8b-8192")
+        ctx.llm = groq.LLM(model="openai/gpt-oss-20b")
         ctx.tts = groq.TTS(voice="Cheyenne-PlayAI")
         ctx.stt = groq.STT()
         # VAD is initialized in prewarm and stored in ctx.proc.userdata["vad"]
@@ -35,11 +34,11 @@ async def entrypoint(ctx: JobContext):
         logger.info("Plugins initialized successfully")
 
         if room_name.startswith("text_"):
-            logger.info("=== LAUNCHING TEXT AGENT ===")
-            await text_agent_entrypoint(ctx)
+            logger.info("Running in text mode")
+            await agent_entrypoint(ctx, "text")
         else:
-            logger.info("=== LAUNCHING VOICE AGENT ===")
-            await voice_agent_entrypoint(ctx)
+            logger.info("Running in voice mode")
+            await agent_entrypoint(ctx, "voice")
             
         logger.info("=== ENTRYPOINT COMPLETED ===")
         
@@ -57,6 +56,6 @@ if __name__ == "__main__":
         WorkerOptions(
             entrypoint_fnc=entrypoint,
             prewarm_fnc=prewarm,
-            agent_name="groq-enhanced-agent",  # Changed to match frontend expectation
+            agent_name="groq-enhanced-agent",
         )
     )
