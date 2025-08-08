@@ -8,7 +8,7 @@ from uuid import uuid4
 
 # Import from the MCP module
 from .util import MCPUtil, FunctionTool
-from .server import MCPServer, MCPServerSse
+from .server import MCPServer
 from livekit.agents import ChatContext, AgentSession, JobContext, FunctionTool as Tool
 from mcp import CallToolRequest
 
@@ -59,14 +59,44 @@ class MCPToolsIntegration:
                 logger.error(f"Failed to fetch tools from {server.name}: {e}")
                 continue
 
-            # Process each tool from this server
-            for tool_instance in mcp_tools:
+            # Process each tool from this server (enforce a hard limit to satisfy upstream model caps)
+            # Many MCP servers expose a large catalog; keep only the first N most relevant tools by default.
+            MAX_TOOLS_PER_SERVER = 100
+            for tool_instance in mcp_tools[:MAX_TOOLS_PER_SERVER]:
+                # Some tools have strict param names that models frequently misspell.
+                # To avoid validation failures before invocation, force a permissive fallback wrapper.
+                # Decide fallback based on schema: if the tool accepts free-form text-like fields,
+                # rely on the permissive wrapper to avoid strict arg-name validation issues.
+                schema_keys = set((tool_instance.params_json_schema or {}).get("properties", {}).keys()) if hasattr(tool_instance, "params_json_schema") else set()
+                fallback_trigger_keys = {"text", "markdown_text", "body"}
+                force_fallback = bool(schema_keys & fallback_trigger_keys)
+
+                if force_fallback:
+                    try:
+                        fallback_tool = MCPToolsIntegration._create_fallback_tool(tool_instance)
+                        prepared_tools.append(fallback_tool)
+                        logger.info(f"Registered fallback tool for '{tool_instance.name}' (schema-triggered)")
+                        continue
+                    except Exception as fe:
+                        logger.error(f"Failed to register schema-triggered fallback for '{tool_instance.name}': {fe}")
+
                 try:
                     decorated_tool = MCPToolsIntegration._create_decorated_tool(tool_instance)
                     prepared_tools.append(decorated_tool)
                     logger.debug(f"Successfully prepared tool: {tool_instance.name}")
                 except Exception as e:
                     logger.error(f"Failed to prepare tool '{tool_instance.name}': {e}")
+                    # Fallback registration with generic payload parameter
+                    try:
+                        fallback_tool = MCPToolsIntegration._create_fallback_tool(tool_instance)
+                        prepared_tools.append(fallback_tool)
+                        logger.warning(
+                            f"Registered fallback tool for '{tool_instance.name}' with generic payload param"
+                        )
+                    except Exception as fe:
+                        logger.error(
+                            f"Failed to register fallback tool for '{tool_instance.name}': {fe}"
+                        )
 
         return prepared_tools
 
@@ -101,8 +131,20 @@ class MCPToolsIntegration:
             py_type = type_map.get(json_type, typing.Any)
             annotations[p_name] = py_type
 
-            # Use inspect.Parameter.empty for required params, None otherwise
-            default = inspect.Parameter.empty if p_name in schema_required else p_details.get("default", None)
+            # Avoid unhashable defaults entirely by omitting them when problematic
+            default = inspect.Parameter.empty
+            if p_name not in schema_required:
+                default_val = p_details.get("default")
+                if default_val is None:
+                    default = None
+                else:
+                    try:
+                        hash(default_val)
+                        default = default_val
+                    except TypeError:
+                        # Do not set a default if it's not hashable (lists/dicts/nested)
+                        default = inspect.Parameter.empty
+
             params.append(inspect.Parameter(
                 name=p_name,
                 kind=inspect.Parameter.KEYWORD_ONLY,
@@ -128,6 +170,104 @@ class MCPToolsIntegration:
         return function_tool()(tool_impl)
 
     @staticmethod
+    def _create_fallback_tool(tool: FunctionTool) -> Callable:
+        """
+        Fallback registration when strict signature generation fails.
+        Exposes keyword params based on the MCP tool schema (all optional, typed as Any),
+        and forwards them as a JSON payload unchanged.
+        """
+        from livekit.agents.llm import function_tool
+
+        # Build a permissive signature from the MCP tool schema
+        schema_props = tool.params_json_schema.get("properties", {}) if hasattr(tool, "params_json_schema") else {}
+        params: list[inspect.Parameter] = []
+        for p_name in schema_props.keys():
+            params.append(
+                inspect.Parameter(
+                    name=p_name,
+                    kind=inspect.Parameter.KEYWORD_ONLY,
+                    annotation=typing.Any,
+                    default=None,
+                )
+            )
+
+        # Provide common alias -> canonical key mapping so models can use flexible names
+        def _build_alias_map(tool_name: str, schema: dict) -> dict[str, str]:
+            aliases: dict[str, str] = {}
+            canonical_keys = set(schema.keys())
+
+            def add(canonical: str, *alias_names: str):
+                if canonical not in canonical_keys:
+                    return
+                for a in alias_names:
+                    if a not in canonical_keys:
+                        aliases.setdefault(a, canonical)
+
+            # Infer aliases solely from the presence of canonical params
+            # Textual content
+            lower_map = {k.lower(): k for k in canonical_keys}
+            if "text" in lower_map:
+                add(lower_map["text"], "content", "body", "markdown", "markdown_text")
+            if "markdown_text" in lower_map:
+                add(lower_map["markdown_text"], "markdown", "md", "content", "text")
+            # Title/name
+            if "title" in lower_map:
+                add(lower_map["title"], "name", "subject")
+            # Document identifiers
+            if "document_id" in lower_map:
+                add(lower_map["document_id"], "doc_id", "documentId", "docId", "id")
+            # Email fields
+            if "to" in lower_map:
+                add(lower_map["to"], "recipient", "email", "to_email", "recipients")
+            if "subject" in lower_map:
+                add(lower_map["subject"], "title", "topic")
+            if "body" in lower_map:
+                add(lower_map["body"], "content", "text", "message")
+
+            return aliases
+
+        alias_map = _build_alias_map(tool.name, schema_props)
+        for alias_name in alias_map.keys():
+            params.append(
+                inspect.Parameter(
+                    name=alias_name,
+                    kind=inspect.Parameter.KEYWORD_ONLY,
+                    annotation=typing.Any,
+                    default=None,
+                )
+            )
+
+        async def tool_impl(**kwargs: Any) -> str:
+            raw: Dict[str, Any] = {k: v for k, v in kwargs.items() if v is not None}
+            payload: Dict[str, Any] = {}
+            # Copy canonical keys first
+            for k in schema_props.keys():
+                if k in raw:
+                    payload[k] = raw[k]
+            # Then map aliases when canonical missing
+            for alias_key, canonical_key in alias_map.items():
+                if canonical_key not in payload and alias_key in raw:
+                    payload[canonical_key] = raw[alias_key]
+            input_json = json.dumps(payload)
+            logger.info(f"Invoking fallback tool '{tool.name}' with payload: {payload}")
+            result_str = await tool.on_invoke_tool(None, input_json)
+            logger.info(f"Tool '{tool.name}' result: {result_str}")
+            return result_str
+
+        # Apply metadata and signature so the LLM knows available params
+        tool_impl.__signature__ = inspect.Signature(parameters=params)
+        tool_impl.__name__ = tool.name
+        tool_impl.__doc__ = tool.description
+        tool_impl.__annotations__ = {"return": str, **{p.name: typing.Any for p in params}}
+
+        return function_tool()(tool_impl)
+
+    @staticmethod
+    def _register_alias_tool_names(prepared_tools: List[Callable], tool_instance: FunctionTool) -> None:
+        # No-op: alias tool registration removed to keep tool count under model limits
+        return
+
+    @staticmethod
     async def register_with_agent(agent, mcp_servers: List[MCPServer],
                                  convert_schemas_to_strict: bool = True,
                                  auto_connect: bool = True) -> List[Callable]:
@@ -150,14 +290,17 @@ class MCPToolsIntegration:
             auto_connect=auto_connect
         )
 
-        # Register with the agent
+        # Register with the agent, respecting global model tool caps
         if hasattr(agent, '_tools') and isinstance(agent._tools, list):
-            agent._tools.extend(tools)
-            logger.info(f"Registered {len(tools)} MCP tools with agent")
+            BASE_LIMIT = 120  # leave room for built-in tools
+            available_slots = max(0, BASE_LIMIT - len(agent._tools))
+            tools_to_add = tools[:available_slots]
+            agent._tools.extend(tools_to_add)
+            logger.info(f"Registered {len(tools_to_add)} MCP tools with agent (capped)")
 
             # Log the names of registered tools
-            if tools:
-                tool_names = [getattr(t, '__name__', 'unknown') for t in tools]
+            if tools_to_add:
+                tool_names = [getattr(t, '__name__', 'unknown') for t in tools_to_add]
                 logger.info(f"Registered tool names: {tool_names}")
         else:
             logger.warning("Agent does not have a '_tools' attribute, tools were not registered")

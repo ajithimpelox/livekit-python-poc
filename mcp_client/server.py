@@ -7,8 +7,19 @@ import logging
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 import mcp.types
 from mcp.types import CallToolResult, JSONRPCMessage, Tool as MCPTool
-from mcp.client.sse import sse_client
+from mcp.client.streamable_http import streamablehttp_client
 from mcp.client.session import ClientSession
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def _http_transport_wrapper(url: str, headers: Optional[Dict[str, str]], timeout: int):
+    """
+    Wrapper for streamablehttp_client to match the expected return signature
+    of the _MCPServerWithClientSession.create_streams method.
+    """
+    async with streamablehttp_client(url, headers=headers, timeout=timeout) as (read, write, _):
+        yield read, write
+
 
 # Base class for MCP servers
 class MCPServer:
@@ -136,30 +147,28 @@ class _MCPServerWithClientSession(MCPServer):
                 self.logger.error(f"Error cleaning up server: {e}")
 
 # Define parameter types for clarity
-MCPServerSseParams = Dict[str, Any]
+MCPServerHttpParams = Dict[str, Any]
 MCPServerStdioParams = Dict[str, Any]
 
-# SSE server implementation
-class MCPServerSse(_MCPServerWithClientSession):
-    """MCP server implementation that uses the HTTP with SSE transport."""
+# HTTP server implementation
+class MCPServerHttp(_MCPServerWithClientSession):
+    """MCP server implementation that uses the HTTP transport."""
 
     def __init__(
         self,
-        params: MCPServerSseParams,
+        params: MCPServerHttpParams,
         cache_tools_list: bool = False,
         name: Optional[str] = None,
     ):
-        """Create a new MCP server based on the HTTP with SSE transport.
-
+        """Create a new MCP server based on the HTTP transport.
         Args:
-            params: The params that configure the server including the URL, headers,
-                   timeout, and SSE read timeout.
+            params: The params that configure the server including the URL, headers, and timeout.
             cache_tools_list: Whether to cache the tools list.
             name: A readable name for the server.
         """
         super().__init__(cache_tools_list)
         self.params = params
-        self._name = name or f"SSE Server at {self.params.get('url', 'unknown')}"
+        self._name = name or f"HTTP Server at {self.params.get('url', 'unknown')}"
 
     def create_streams(
         self,
@@ -170,17 +179,17 @@ class MCPServerSse(_MCPServerWithClientSession):
         ]
     ]:
         """Create the streams for the server."""
-        return sse_client(
+        return _http_transport_wrapper(
             url=self.params["url"],
             headers=self.params.get("headers"),
             timeout=self.params.get("timeout", 5),
-            sse_read_timeout=self.params.get("sse_read_timeout", 60 * 5),
         )
 
     @property
     def name(self) -> str:
         """A readable name for the server."""
         return self._name
+
 
 # Stdio server implementation
 class MCPServerStdio(MCPServer):

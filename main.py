@@ -26,7 +26,7 @@ async def entrypoint(ctx: JobContext):
         
         # Initialize plugins
         logger.info("Initializing plugins...")
-        ctx.llm = groq.LLM(model="openai/gpt-oss-20b")
+        ctx.llm = groq.LLM(model="openai/gpt-oss-20b", temperature=0.5, parallel_tool_calls=True, tool_choice='auto' )
         ctx.tts = groq.TTS(voice="Cheyenne-PlayAI")
         ctx.stt = groq.STT()
         # VAD is initialized in prewarm and stored in ctx.proc.userdata["vad"]
@@ -52,10 +52,13 @@ if __name__ == "__main__":
     logger.info(f"LIVEKIT_API_KEY: {'SET' if os.environ.get('LIVEKIT_API_KEY') else 'NOT SET'}")
     logger.info(f"LIVEKIT_API_SECRET: {'SET' if os.environ.get('LIVEKIT_API_SECRET') else 'NOT SET'}")
     
+    ws_url = os.environ.get("LIVEKIT_URL")
     cli.run_app(
         WorkerOptions(
             entrypoint_fnc=entrypoint,
             prewarm_fnc=prewarm,
             agent_name="groq-enhanced-agent",
+            ws_url=ws_url,
+            http_proxy=None,
         )
     )

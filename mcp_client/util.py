@@ -2,10 +2,10 @@ import asyncio
 import json
 import functools
 from typing import Any, Dict, List
-
-# Import from mcp libraries
-from mcp.types import Tool as MCPTool, CallToolResult
 from .server import MCPServer
+
+
+
 
 # A minimal FunctionTool class used by the agent.
 class FunctionTool:

@@ -43,20 +43,46 @@ def prewarm(proc: JobProcess):
 
 # Define web search tool outside the class
 @function_tool()
-async def search_web(context: RunContext, query: str) -> str:
+async def search_web(context: RunContext, query: Optional[str] = None) -> str:
     """Search the web for real-time information.
     
     Args:
-        query: The search query string
+        query: The search query string. If not provided, derives from the latest user message.
         
     Returns:
         Search results from the web
     """
-    logger.info(f"🔍 Searching the web for: {query}")
+    # Derive query from latest user message if missing
+    effective_query = (query or "").strip()
+    if not effective_query:
+        try:
+            # Look back through chat items on this turn for the last user message
+            for item in reversed(context.speech_handle.chat_items):
+                if isinstance(item, ChatMessage) and item.role == "user":
+                    text = item.text_content or ""
+                    if text:
+                        effective_query = text
+                        break
+        except Exception as _:
+            effective_query = ""
+
+    # Heuristic: strip email instruction fragments from the query to improve search quality
+    if effective_query:
+        try:
+            import re
+            effective_query = re.sub(r"\band send to mail id\b.*", "", effective_query, flags=re.I).strip()
+            effective_query = re.sub(r"\bsend to (?:my )?email\b.*", "", effective_query, flags=re.I).strip()
+        except Exception:
+            pass
+
+    if not effective_query:
+        return "Please specify what to search for."
+
+    logger.info(f"🔍 Searching the web for: {effective_query}")
     try:
         # Initialize Tavily client
         tavily_client = TavilyClient(api_key=os.environ.get("TAVILY_API_KEY", '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'))
-        response = tavily_client.search(query=query)
+        response = tavily_client.search(query=effective_query)
         
         # Format the results nicely
         if isinstance(response, dict) and 'results' in response and response['results']:
