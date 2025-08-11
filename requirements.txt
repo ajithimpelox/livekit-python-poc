@@ -6,3 +6,9 @@ livekit-plugins-deepgram>=1.0.0rc7
 python-dotenv
 tavily-python
 mcp
+mysql-connector-python==8.0.33
+pinecone==7.3.0
+langchain==0.3.27
+langchain-pinecone==0.3.27
+# langchain-core==0.3.74
+langchain-openai==0.3.29

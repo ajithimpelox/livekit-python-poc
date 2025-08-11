@@ -1,25 +1,17 @@
-import asyncio
 import json
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional
 from datetime import datetime
 import os
 from tavily import TavilyClient
 
 from livekit.agents import (
-    JobContext,
-    WorkerOptions,
-    cli,
     JobProcess,
-    AutoSubscribe,
-    Agent,
-    AgentSession,
     function_tool,
     RunContext,
-    ChatContext,
     ChatMessage,
 )
-from livekit.plugins import silero, groq
+from livekit.plugins import silero
 from livekit import rtc
 
 from dotenv import load_dotenv
@@ -102,24 +94,27 @@ async def search_web(context: RunContext, query: Optional[str] = None) -> str:
         return f"I encountered an error while searching: {str(e)}"
 
 
-async def send_text_message(room: rtc.Room, message: str):
+async def send_text_message(room: rtc.Room, topic: str, message: str, additional_data: dict = None):
     """Send text message back to frontend for display purposes"""
     try:
         data = {
-            "type": "chat_response",
+            "topic": topic,
             "message": message,
-            "timestamp": int(datetime.now().timestamp() * 1000)
+            "timestamp": int(datetime.now().timestamp() * 1000),
         }
-        
+        if additional_data:
+            data.update(additional_data)
+            
         data_str = json.dumps(data)
         data_bytes = data_str.encode('utf-8')
         
-        await room.local_participant.publish_data(
-            payload=data_bytes,
-            reliable=True,
-            topic="lk.chat.response"
-        )
-        logger.info(f"Sent text message for display: {message[:50]}...")
+        if getattr(room, "local_participant", None):
+            await room.local_participant.publish_data(
+              payload=data_bytes,
+              reliable=True,
+              topic=topic
+            )
+            logger.info(f"Sent text message for display: {message[:50]}...")
         
     except Exception as e:
         logger.error(f"Failed to send text message: {e}")

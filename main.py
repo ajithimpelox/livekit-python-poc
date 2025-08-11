@@ -9,7 +9,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logger = logging.getLogger(__name__)
 
 try:
-    from common import prewarm, logger as common_logger
+    from utils.common import prewarm, logger
     from agent import agent_entrypoint
     logger.info("All imports successful")
 except ImportError as e:
@@ -33,12 +33,7 @@ async def entrypoint(ctx: JobContext):
         
         logger.info("Plugins initialized successfully")
 
-        if room_name.startswith("text_"):
-            logger.info("Running in text mode")
-            await agent_entrypoint(ctx, "text")
-        else:
-            logger.info("Running in voice mode")
-            await agent_entrypoint(ctx, "voice")
+        await agent_entrypoint(ctx)
             
         logger.info("=== ENTRYPOINT COMPLETED ===")
         
