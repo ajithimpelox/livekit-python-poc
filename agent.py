@@ -253,7 +253,9 @@ async def agent_entrypoint(ctx: JobContext):
     })
 
     session = AgentSession(
-        llm=groq.LLM(model=metadata.get("llmName") or "openai/gpt-oss-20b", temperature=0.8),
+        # llm=groq.LLM(model=metadata.get("llmName") or "openai/gpt-oss-20b", temperature=0.8),
+        llm=groq.LLM(model="openai/gpt-oss-20b", temperature=0.8),
+        # llm=groq.LLM(model="qwen/qwen3-32b", temperature=0.8),
         # tts=groq.TTS(voice=metadata.get("voice") or "Cheyenne-PlayAI"),
         tts=groq.TTS(voice="Cheyenne-PlayAI"),
         stt=groq.STT(),
