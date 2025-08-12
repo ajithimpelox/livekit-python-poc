@@ -1,4 +1,5 @@
 from utils.common import logger
+from utils.enums import ChatType
 from database.mysql.db_manager import connection_pool
 
 
@@ -43,7 +44,6 @@ async def check_customer_credits(customer_id: int, minimum_credits: int = 20) ->
         row = cursor.fetchone()
         current_credits = row['credits'] if row and 'credits' in row else 0
         has_credits = current_credits >= minimum_credits
-        logger.info(f"Customer credits ******* {row}, {customer_id}, {minimum_credits}, {has_credits}")
         cursor.close()
         connection_object.close()
         return {
@@ -380,8 +380,6 @@ async def log_chat_transaction(data: dict):
         dict: The created chat record or None if error
     """
     try:
-        from enums import ChatType
-        
         connection_object = connection_pool.get_connection()
         cursor = connection_object.cursor(dictionary=True)
         
@@ -418,7 +416,7 @@ async def log_chat_transaction(data: dict):
         connection_object.commit()
         
         chat_id = cursor.lastrowid
-        
+
         # Fetch the created record
         select_query = "SELECT * FROM chat WHERE id = %s"
         cursor.execute(select_query, (chat_id,))

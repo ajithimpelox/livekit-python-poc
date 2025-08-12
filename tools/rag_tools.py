@@ -4,7 +4,6 @@ import re
 from typing import Dict, Any
 from langchain_openai import OpenAIEmbeddings
 from langchain_pinecone import PineconeVectorStore
-from pinecone import Pinecone as PineconeClient
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -31,10 +30,7 @@ async def get_rag_information_from_vector_store(
         model='text-embedding-3-small'
     )
     
-    try:
-        pinecone = PineconeClient()
-        pinecone_index = pinecone.Index(index_name)
-        
+    try:        
         vector_store: PineconeVectorStore = PineconeVectorStore.from_existing_index(
             index_name=index_name,
             embedding=embeddings,

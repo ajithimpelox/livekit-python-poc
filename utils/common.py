@@ -153,7 +153,7 @@ async def search_knowledge_base(context: RunContext, query: Optional[str] = None
                     page_number = doc.metadata.get("page") if hasattr(doc, "metadata") else None
                 except Exception:
                     page_number = None
-
+            logger.info(f"Page no: {page_number}")
             # Send page number to frontend if available
             if _RUNTIME.get("room") is not None and page_number not in (None, ""):
                 try:
@@ -200,7 +200,9 @@ async def store_long_term_memory_information(
 ) -> str:
     """Store important information as a key-value pair for future conversations."""
     customer_id = _RUNTIME.get("customer_id")
-
+    print(f"Customer ID: {customer_id}")
+    print(f"Key: {key}")
+    print(f"Value: {value}")
     try:
         # Notify frontend
         if _RUNTIME.get("room") is not None:
