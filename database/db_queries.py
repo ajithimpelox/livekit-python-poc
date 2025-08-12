@@ -241,16 +241,11 @@ async def create_user_lead_form(chat_bot_id: int, user_lead_dto: dict):
         connection_object.start_transaction()
         
         # Create user lead
-        user_lead_query = """
+        user_lead_query = f"""
             INSERT INTO user_lead (user_session_id, chat_bot_id, chat_bot_lead_form_id, conversation_id)
-            VALUES (%s, %s, %s, %s)
+            VALUES ({user_lead_dto.get('user_session_id')}, {chat_bot_id}, {user_lead_dto.get('chat_bot_lead_form_id')}, {user_lead_dto.get('conversation_id')})
         """
-        cursor.execute(user_lead_query, (
-            user_lead_dto['userSessionId'],
-            chat_bot_id,
-            user_lead_dto['chatBotLeadFormId'],
-            user_lead_dto['conversationId']
-        ))
+        cursor.execute(user_lead_query)
         
         user_lead_id = cursor.lastrowid
         
@@ -261,17 +256,13 @@ async def create_user_lead_form(chat_bot_id: int, user_lead_dto: dict):
             return False
         
         # Create user lead values
-        user_lead_value_query = """
-            INSERT INTO user_lead_value (user_lead_id, lable, value)
-            VALUES (%s, %s, %s)
-        """
         
-        for form_item in user_lead_dto['form']:
-            cursor.execute(user_lead_value_query, (
-                user_lead_id,
-                form_item['lable'],
-                form_item['value']
-            ))
+        for form_item in user_lead_dto.get('form'):
+            user_lead_value_query = f"""
+            INSERT INTO user_lead_value (user_lead_id, lable, value)
+            VALUES ({user_lead_id}, '{form_item.get('lable')}', '{form_item.get('value')}')
+            """
+            cursor.execute(user_lead_value_query)
         
         # Commit transaction
         connection_object.commit()

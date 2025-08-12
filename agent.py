@@ -52,7 +52,7 @@ class UnifiedAgent(Agent):
         handle_lead_form_response = self.agent_context.get('handle_lead_form_response')
         logger.info(f"on_user_turn_completed: {is_lead_form_active} {handle_lead_form_response}")
         if is_lead_form_active and handle_lead_form_response:
-            await handle_lead_form_response(new_message.content)
+            await handle_lead_form_response(new_message.content[0])
             return
 
 
@@ -75,9 +75,10 @@ async def agent_entrypoint(ctx: JobContext):
     metadata = json.loads(ctx.room.metadata or "{}")
     logger.info(f"Metadata: {metadata}")
 
-    conversation_id = metadata.get("conversationId") or 1
+    conversation_id_raw = metadata.get("conversationId") or "1"
+    conversation_id = int(conversation_id_raw.split("-")[0] if "-" in conversation_id_raw else conversation_id_raw)
     customer_id = int(metadata.get("customerId") or 1)
-    user_session_id = metadata.get("userSessionId") or 0
+    user_session_id = int(metadata.get("userSessionId") or 0)
     knowledgebase_id = int(metadata.get("knowledgebaseId") or 1)
     is_embed_shared_chatbot = bool(metadata.get("isEmbedSharedChatbot")) or False
     logger.info(f"Conversation ID: {conversation_id}, Customer ID: {customer_id}, User Session ID: {user_session_id}, Knowledgebase ID: {knowledgebase_id}, Is embed shared chatbot: {is_embed_shared_chatbot}")
@@ -139,15 +140,15 @@ async def agent_entrypoint(ctx: JobContext):
     if is_embed_shared_chatbot:
         lead_form = await get_lead_form(knowledgebase_id)
         logger.info(f"Lead form: {lead_form}")
-        if len(lead_form.chatBotLeadInputField) > 0:
-            is_lead_already_exists_result = await is_lead_already_exists(knowledgebase_id, lead_form.id, user_session_id, conversation_id)
+        if len(lead_form.__getitem__('chatBotLeadInputField')) > 0:
+            is_lead_already_exists_result = await is_lead_already_exists(knowledgebase_id, lead_form.__getitem__('id'), user_session_id, conversation_id)
             logger.info(f"Is lead already exists: {is_lead_already_exists_result}")
             if not is_lead_already_exists_result:
                 is_lead_form_active = True
-                lead_form_fields = lead_form.chatBotLeadInputField
+                lead_form_fields = lead_form.__getitem__('chatBotLeadInputField')
                 lead_form_responses = []
                 current_lead_form_field_index = 0
-                chat_bot_lead_form_id = lead_form.id
+                chat_bot_lead_form_id = lead_form.__getitem__('id')
 
     namespace = existing_chatbot.get("namespace")
     index_name = existing_chatbot.get("index_name")
@@ -163,7 +164,7 @@ async def agent_entrypoint(ctx: JobContext):
             namespace, 
             index_name, 
             'Summarize the entire document for knowledge base', 
-            20
+            1
         )
         
         if kb_summary_result and kb_summary_result.get('results'):
@@ -207,12 +208,12 @@ async def agent_entrypoint(ctx: JobContext):
             # All fields completed, create the lead form and send confirmation
             try:                
                 user_lead_dto = {
-                    "conversationId": conversation_id,
-                    "chatBotLeadFormId": chat_bot_lead_form_id,
-                    "userSessionId": user_session_id or 0,
+                    "conversation_id": conversation_id,
+                    "chat_bot_lead_form_id": chat_bot_lead_form_id,
+                    "user_session_id": user_session_id,
                     "form": lead_form_responses
                 }
-
+                logger.info(f"user_lead_dto: {user_lead_dto}")
                 success = await create_user_lead_form(knowledgebase_id, user_lead_dto)
                 if success:
                     await session.say("Thanks for filling the form, you can now proceed with the conversation")
