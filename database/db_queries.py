@@ -163,6 +163,42 @@ async def get_realtime_information(customer_id: int):
         })
         raise
 
+async def upsert_customer_realtime_information(customer_id: int, key: str, value: str) -> bool:
+    """Insert or update a customer's realtime information key/value."""
+    try:
+        connection_object = connection_pool.get_connection()
+        cursor = connection_object.cursor(dictionary=True)
+
+        # Try update first
+        update_query = """
+            UPDATE customer_realtime_information
+            SET info_value = %s
+            WHERE customer_id = %s AND info_key = %s
+        """
+        cursor.execute(update_query, (value, customer_id, key))
+        if cursor.rowcount == 0:
+            insert_query = """
+                INSERT INTO customer_realtime_information (customer_id, info_key, info_value)
+                VALUES (%s, %s, %s)
+            """
+            cursor.execute(insert_query, (customer_id, key, value))
+
+        connection_object.commit()
+        cursor.close()
+        connection_object.close()
+        return True
+    except Exception as e:
+        logger.error("Error upserting customer realtime information", extra={
+            "error": str(e),
+            "customer_id": customer_id,
+            "key": key,
+        })
+        try:
+            connection_object.rollback()
+        except Exception:
+            pass
+        return False
+
 async def get_lead_form(chat_bot_id: int):
     """
     Get lead form for a specific chat bot.

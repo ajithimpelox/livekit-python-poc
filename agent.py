@@ -15,7 +15,7 @@ from livekit.agents import (
 )
 from livekit import rtc
 from livekit.plugins import groq
-from utils.common import logger, send_text_message, search_web
+from utils.common import logger, send_text_message, search_web, search_knowledge_base, store_long_term_memory_information
 from database.db_queries import calculate_credits_used, check_customer_credits, deduct_customer_credits, get_chat_bot_by_id, get_agent_custom_prompt, get_lead_form, get_realtime_information, is_lead_already_exists, log_chat_transaction, create_user_lead_form
 from utils.enums import ChatType
 from tools.rag_tools import get_rag_information_from_vector_store
@@ -39,7 +39,7 @@ class UnifiedAgent(Agent):
             # - Always confirm success or provide a clear error.
             # """,
 
-            tools=[search_web],
+            tools=[search_web, search_knowledge_base, store_long_term_memory_information],
         )
         self.mode = "voice"
         self.agent_context = agent_context or {}
@@ -78,7 +78,7 @@ async def agent_entrypoint(ctx: JobContext):
     conversation_id_raw = metadata.get("conversationId") or "1"
     conversation_id = int(conversation_id_raw.split("-")[0] if "-" in conversation_id_raw else conversation_id_raw)
     customer_id = int(metadata.get("customerId") or 1)
-    user_session_id = int(metadata.get("userSessionId") or 0)
+    user_session_id = metadata.get("userSessionId") or 0
     knowledgebase_id = int(metadata.get("knowledgebaseId") or 1)
     is_embed_shared_chatbot = bool(metadata.get("isEmbedSharedChatbot")) or False
     logger.info(f"Conversation ID: {conversation_id}, Customer ID: {customer_id}, User Session ID: {user_session_id}, Knowledgebase ID: {knowledgebase_id}, Is embed shared chatbot: {is_embed_shared_chatbot}")
