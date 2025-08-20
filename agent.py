@@ -52,6 +52,7 @@ async def agent_entrypoint(ctx: JobContext, mode: str):
 
     # Register MCP tools with the agent stays below, but we want background audio as early as possible.
     # Create the session first so background audio can bind to it for thinking cues.
+    print('ajii',ctx.llm)
     session = AgentSession(
         llm=ctx.llm,
         tts=ctx.tts,
@@ -82,13 +83,6 @@ async def agent_entrypoint(ctx: JobContext, mode: str):
             },
             name="composio_server"
         ),
-         MCPServerHttp(
-            params={
-                "url": 'https://mcp.composio.dev/composio/server/5efa70d8-e565-4566-885b-49cbb5181bca?transport=mcp&connected_account_id=543c29cf-068d-4082-8114-ef674132d00c&user_id=googledocs-1492',
-                "timeout": 10,
-            },
-            name="composio_server"
-        )
     ]
 
     # Register MCP tools with the agent
@@ -138,7 +132,7 @@ async def agent_entrypoint(ctx: JobContext, mode: str):
     logger.info(f"Participant joined {mode} room")
 
     # Send greeting while ambient background audio is already playing
-    greeting = f"Hello! I'm your Groq {mode} assistant. How can I help you today?"
+    greeting = f"Hello! I'm your {mode} assistant. How can I help you today?"
     await session.say(greeting, allow_interruptions=(mode == "voice"))
     await send_text_message(ctx.room, greeting)
     logger.info(f"Greeting sent for {mode} agent")

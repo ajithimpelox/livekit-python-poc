@@ -121,14 +121,25 @@ class MCPToolsIntegration:
         schema_props = tool.params_json_schema.get("properties", {})
         schema_required = set(tool.params_json_schema.get("required", []))
         type_map = {
-            "string": str, "integer": int, "number": float,
-            "boolean": bool, "array": list, "object": dict,
+            "string": str,
+            "integer": int,
+            "number": float,
+            "boolean": bool,
         }
 
         # Build parameters from the schema properties
         for p_name, p_details in schema_props.items():
             json_type = p_details.get("type", "string")
-            py_type = type_map.get(json_type, typing.Any)
+            # Map arrays/objects to precise typing for schema emission
+            if json_type == "array":
+                item_schema = p_details.get("items") or {}
+                item_json_type = item_schema.get("type", "string")
+                item_py_type = type_map.get(item_json_type, str)
+                py_type = typing.List[item_py_type]  # type: ignore[index]
+            elif json_type == "object":
+                py_type = typing.Dict[str, typing.Any]
+            else:
+                py_type = type_map.get(json_type, str)
             annotations[p_name] = py_type
 
             # Avoid unhashable defaults entirely by omitting them when problematic
@@ -181,12 +192,31 @@ class MCPToolsIntegration:
         # Build a permissive signature from the MCP tool schema
         schema_props = tool.params_json_schema.get("properties", {}) if hasattr(tool, "params_json_schema") else {}
         params: list[inspect.Parameter] = []
-        for p_name in schema_props.keys():
+
+        # Map JSON schema types to Python types for better provider compatibility (OpenAI requires explicit types)
+        type_map: dict[str, type] = {
+            "string": str,
+            "integer": int,
+            "number": float,
+            "boolean": bool,
+        }
+
+        for p_name, p_details in schema_props.items():
+            json_type = p_details.get("type") or "string"
+            if json_type == "array":
+                item_schema = p_details.get("items") or {}
+                item_json_type = item_schema.get("type", "string")
+                item_py_type = type_map.get(item_json_type, str)
+                py_type = typing.List[item_py_type]  # type: ignore[index]
+            elif json_type == "object":
+                py_type = typing.Dict[str, typing.Any]
+            else:
+                py_type = type_map.get(json_type, str)
             params.append(
                 inspect.Parameter(
                     name=p_name,
                     kind=inspect.Parameter.KEYWORD_ONLY,
-                    annotation=typing.Any,
+                    annotation=py_type,
                     default=None,
                 )
             )
@@ -232,7 +262,7 @@ class MCPToolsIntegration:
                 inspect.Parameter(
                     name=alias_name,
                     kind=inspect.Parameter.KEYWORD_ONLY,
-                    annotation=typing.Any,
+                    annotation=str,
                     default=None,
                 )
             )
@@ -258,7 +288,9 @@ class MCPToolsIntegration:
         tool_impl.__signature__ = inspect.Signature(parameters=params)
         tool_impl.__name__ = tool.name
         tool_impl.__doc__ = tool.description
-        tool_impl.__annotations__ = {"return": str, **{p.name: typing.Any for p in params}}
+        # Provide explicit annotations; default to str for broad compatibility
+        annotations: dict[str, type] = {p.name: (p.annotation if p.annotation is not inspect._empty else str) for p in params}
+        tool_impl.__annotations__ = {"return": str, **annotations}
 
         return function_tool()(tool_impl)
 

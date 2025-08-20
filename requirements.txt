@@ -2,6 +2,7 @@ livekit-agents>=1.0.0rc7
 livekit-plugins-groq
 livekit-plugins-silero
 livekit-plugins-openai>=1.0.0rc7
+livekit-plugins-google>=1.0.0rc7
 livekit-plugins-deepgram>=1.0.0rc7
 python-dotenv
 tavily-python

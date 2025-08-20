@@ -2,7 +2,7 @@ import logging
 import sys
 import os
 from livekit.agents import JobContext, WorkerOptions, cli
-from livekit.plugins import groq
+from livekit.plugins import groq, openai, google
 
 # Set up logging first
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -16,6 +16,46 @@ except ImportError as e:
     logger.error(f"Import error: {e}")
     sys.exit(1)
 
+def get_llm_provider(provider_name: str, model: str, **kwargs):
+    """Dynamic LLM provider selection based on job metadata."""
+    providers = {
+        "groq": lambda: groq.LLM(model=model, **kwargs),
+        "openai": lambda: openai.LLM(model=model, **kwargs),
+        "google": lambda: google.LLM(model=model, **kwargs),
+        "gemini": lambda: google.LLM(model=model, **kwargs),  # Alias
+    }
+    # Default to Groq if provider not recognized
+    return providers.get(provider_name.lower(), providers["groq"])()
+
+def get_tts_provider(provider_name: str, metadata: dict | None = None):
+    """Dynamic TTS provider selection based on job metadata."""
+    metadata = metadata or {}
+    provider = (provider_name or "groq").lower()
+
+    if provider == "groq" or provider == "gemini":
+        requested_voice = metadata.get("voice") or "Cheyenne-PlayAI"
+        arabic_voices = {"Ahmad-PlayAI", "Amira-PlayAI", "Khalid-PlayAI", "Nasser-PlayAI"}
+        tts_model = "playai-tts-arabic" if requested_voice in arabic_voices else "playai-tts"
+        return groq.TTS(voice=requested_voice, model=tts_model)
+
+    if provider in {"openai"}:
+        # Use defaults; plugin will pick a sensible model/voice
+        return openai.TTS()
+    # Fallback
+    return groq.TTS()
+
+def get_stt_provider(provider_name: str):
+    """Dynamic STT provider selection based on job metadata."""
+    provider = (provider_name or "groq").lower()
+
+    if provider == "groq":
+        return groq.STT()
+    if provider == "openai":
+        return openai.STT()
+    if provider in {"google", "gemini"}:
+        return groq.STT()
+    return groq.STT()
+
 async def entrypoint(ctx: JobContext):
     """Router entrypoint that decides which agent to run."""
     try:
@@ -26,9 +66,19 @@ async def entrypoint(ctx: JobContext):
         
         # Initialize plugins
         logger.info("Initializing plugins...")
-        ctx.llm = groq.LLM(model="openai/gpt-oss-20b", temperature=0.5, parallel_tool_calls=True, tool_choice='auto' )
-        ctx.tts = groq.TTS(voice="Cheyenne-PlayAI")
-        ctx.stt = groq.STT()
+        metadata = getattr(ctx.job, "metadata", None) or {}
+        provider = metadata.get("provider", "gemini")
+        model = metadata.get("llmName") or 'gemini-2.0-flash-exp'
+
+        ctx.llm = get_llm_provider(
+            provider_name=provider,
+            model=model,
+            temperature=0.5,
+            tool_choice='auto',
+        )
+
+        ctx.tts = get_tts_provider(provider_name=provider, metadata=metadata)
+        ctx.stt = get_stt_provider(provider_name=provider)
         # VAD is initialized in prewarm and stored in ctx.proc.userdata["vad"]
         
         logger.info("Plugins initialized successfully")

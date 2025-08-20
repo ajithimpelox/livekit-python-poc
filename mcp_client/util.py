@@ -31,8 +31,10 @@ class MCPUtil:
 
     @classmethod
     def to_function_tool(cls, tool, server, convert_schemas_to_strict: bool) -> FunctionTool:
-        # In a more complete implementation, you might convert the JSON schema into a strict version.
-        schema = tool.inputSchema
+        # Optionally convert the JSON schema into a stricter, provider-friendly version.
+        schema = tool.inputSchema or {}
+        if convert_schemas_to_strict:
+            schema = cls._normalize_json_schema(schema)
 
         # Use a default argument to capture the current tool correctly in the closure
         async def invoke_tool(context: Any, input_json: str, current_tool_name=tool.name) -> str:
@@ -80,3 +82,29 @@ class MCPUtil:
             on_invoke_tool=invoke_tool,
             strict_json_schema=convert_schemas_to_strict,
         )
+
+    @staticmethod
+    def _normalize_json_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
+        # Ensure root is an object schema with properties
+        norm: Dict[str, Any] = dict(schema) if isinstance(schema, dict) else {}
+        if norm.get("type") is None:
+            norm["type"] = "object"
+        if norm.get("properties") is None or not isinstance(norm.get("properties"), dict):
+            norm["properties"] = {}
+
+        props: Dict[str, Any] = norm["properties"]
+        for key, prop in list(props.items()):
+            if not isinstance(prop, dict):
+                props[key] = {"type": "string"}
+                continue
+            if prop.get("type") is None:
+                prop["type"] = "string"
+            # For arrays, ensure items are typed
+            if prop.get("type") == "array":
+                if not isinstance(prop.get("items"), dict):
+                    prop["items"] = {"type": "string"}
+                else:
+                    if prop["items"].get("type") is None:
+                        prop["items"]["type"] = "string"
+
+        return norm
